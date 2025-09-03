@@ -48,19 +48,26 @@ namespace mem {
             }
         }
 
+
+        using uint = unsigned int;
+        static constexpr std::size_t WORD_SIZE = sizeof(uint);
+
+        static constexpr std::size_t BLOCK_SIZE = 4*WORD_SIZE;        
+
         template<uint32_t CNT>
         static inline void __attribute__((always_inline)) _cpy(void* dst, const void* src) noexcept {
 
             if constexpr (CNT > 0) {
 
                 using T = 
-                        // std::conditional_t<(CNT >= sizeof(uint64_t)), uint64_t, // On architectures < 64 bit, uint32_t is slightly preferable (less register pressure)
+                        std::conditional_t<(CNT >= sizeof(uint)), uint, // Prefer to use native word size
                             std::conditional_t<(CNT >= sizeof(uint32_t)), uint32_t,
                                 std::conditional_t<(CNT >= sizeof(uint16_t)), uint16_t,
                                     uint8_t
                                 >
-                            >;
-                        // >;
+                            >
+                        >;
+
                 constexpr size_t S = sizeof(T);
                 *(T*)dst = *(const T*)src;
                 if constexpr (CNT > S) {
@@ -72,16 +79,15 @@ namespace mem {
         template<uint32_t N>
         static constexpr uint32_t log2() {
             static_assert( N != 0 );
-            for(uint32_t i = 1; i < 32; ++i ) {
-                if((N >> i) == 0) {
-                    return i-1;
-                }
-            }
-            return 32;
+            return 31 - __builtin_clz(N);
         }
 
         template<uint32_t N>
+        requires( N > 0 )
         static constexpr uint32_t MSB = (1 << log2<N>());
+
+        template<uint32_t N>
+        static constexpr bool IS_POW2 = (N!=0) && ((N & (N-1)) == 0);
 
         /**
          * @brief Copies a number of bytes from \p src to \p dst.
@@ -96,21 +102,26 @@ namespace mem {
         template<uint32_t CEIL = 16>
         requires (CEIL != 0 /* && (CEIL & (CEIL-1)) == 0 */)
         static inline void __attribute__((always_inline)) unrolled_cpy(void* dst, const void* src, std::size_t len) noexcept {
-            if constexpr (CEIL > 32) {
+            static_assert( IS_POW2<BLOCK_SIZE> );
+
+            if constexpr (CEIL > (2*BLOCK_SIZE)) {
                 // You should probably be using std::memcpy...
                 {
-                    void* const dend = pplus(dst,(len/16)*16);
+                    void* const dend = pplus(dst,(len/BLOCK_SIZE)*BLOCK_SIZE);
                     while(dst < dend) {
-                        _cpy<16>(dst,src);
-                        incptr<16>(dst);
-                        incptr<16>(src);
+                        _cpy<BLOCK_SIZE>(dst,src);
+                        incptr<BLOCK_SIZE>(dst);
+                        incptr<BLOCK_SIZE>(src);
                     }
+                    len = len % BLOCK_SIZE;
                 }
-                unrolled_cpy<16>(dst,src,len);
+                if(len) {
+                    unrolled_cpy<BLOCK_SIZE>(dst,src,len);
+                }
             } else
-            if constexpr ((CEIL & (CEIL-1)) != 0) {
-                static_assert( MSB<CEIL> <= 16 );                
-                static_assert( (CEIL - MSB<CEIL>) < 16 );
+            if constexpr (!IS_POW2<CEIL>) {
+                static_assert( MSB<CEIL> <= BLOCK_SIZE );                
+                static_assert( (CEIL - MSB<CEIL>) < BLOCK_SIZE );
                 if(len >= MSB<CEIL>) {
                     _cpy<CEIL-MSB<CEIL>>(dst,src);
                     incptr<CEIL-MSB<CEIL>>(dst);
@@ -156,5 +167,18 @@ namespace mem {
     static inline void cpy_short(void* const dst, const void* const src) noexcept {
         _cpy<CNT>(dst,src);
     }
+
+    template<uint32_t MAX>
+    static inline void cpy_short_2(void* const dst, const void* const src, std::size_t len) noexcept {
+        if constexpr (IS_POW2<MAX>) {
+            if(len == MAX) {
+                unrolled_cpy<2*MAX>(dst,src,MAX);
+            } else {
+                unrolled_cpy<MAX>(dst,src,len);
+            }
+        } else {
+            unrolled_cpy<MAX+1>(dst,src,len);
+        }
+    }    
 
 }
