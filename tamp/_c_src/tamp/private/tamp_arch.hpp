@@ -32,7 +32,7 @@ namespace tamp {
          * @brief Do we have the ESP32-S3's ISA extensions?
          * 
          */
-        static constexpr bool ESP32S3 =
+        static constexpr bool ESP32S3 = false && 
             #if CONFIG_IDF_TARGET_ESP32S3
                 true;
             #else
