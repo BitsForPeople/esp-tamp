@@ -52,7 +52,7 @@ namespace tamp {
                 return LITLEN;
             }
             static constexpr uint32_t getLiteralFlag(const C& comp) noexcept {
-                return 1 << LITLEN;
+                return (uint32_t)1 << LITLEN;
             }    
             static constexpr bool isValidLitLen(const uint8_t bits) noexcept {
                 return bits == LITLEN;
@@ -105,8 +105,74 @@ namespace tamp {
             }
 
         };
+
+        // encodes [min_pattern_bytes, min_pattern_bytes + 13] pattern lengths
+        // The bit lengths pre-add the 1 bit for the 0-value is_literal flag.
+        static constexpr huffcode_t huffman_codes[] {
+            {0x0, 2},
+            {0x3, 3},
+            {0x8, 5},
+            {0xb, 5},
+            {0x14, 6},
+            {0x24, 7},
+            {0x26, 7},
+            {0x2b, 7},
+            {0x4b, 8},
+            {0x54, 8},
+            {0x94, 9},
+            {0x95, 9},
+            {0xaa, 9},
+            {0x27, 7}
+        };
+
     } // namespace detail
 
+
+    class DefaultEncoder {
+        using LitLenTrait = detail::LitConf<TampCompressor>;        
+        public:
+
+        constexpr DefaultEncoder(TampCompressor& comp) noexcept :
+            comp {comp} 
+        {
+
+        }
+
+        // void passThrough(uint32_t value, uint32_t n_bits) {
+
+        // }
+
+        void encodeLiteral(uint32_t lit) {
+            write_to_bit_buffer(LitLenTrait::getLiteralFlag(comp) | lit, LitLenTrait::getLiteralBits(comp));
+        }
+
+        // void encodeToken(uint32_t value, uint32_t n_bits) {
+        //     write_to_bit_buffer(value, 1+n_bits);
+        // }
+
+        void encodeBackref(uint32_t len, uint32_t position) {
+            const uint32_t huffman_index = len - comp.min_pattern_size;
+            // The huffcode already includes a leading 0 "is-literal" bit
+            write_to_bit_buffer(detail::huffman_codes[huffman_index]);
+            write_to_bit_buffer(position, comp.conf_window);
+        }
+
+
+        private:
+        TampCompressor& comp;
+
+        constexpr void write_to_bit_buffer(const uint32_t bits, const uint32_t n_bits) noexcept {
+            uint32_t pos = comp.bit_buffer_pos;
+            pos += n_bits;
+            comp.bit_buffer_pos = pos;
+            comp.bit_buffer |= bits << (32 - pos);
+        } 
+
+        constexpr void write_to_bit_buffer(const detail::huffcode_t& huffcode) noexcept {
+            write_to_bit_buffer(huffcode.code,huffcode.n_bits);
+        }
+
+    };
 
 
     class Compressor : public TampCompressor {
@@ -420,21 +486,46 @@ namespace tamp {
                 this->input_size = sz;
 
                 if (sz != 0) [[likely]] {
-                    if constexpr (tamp::Arch::ESP32S3 && INBUF_SIZE == 16 && INBUF_ALIGNMENT >= 16) {
+                    if constexpr (tamp::Arch::ESP32S3 &&
+                      INBUF_SIZE >= 16 &&
+                      INBUF_SIZE % 16 == 0 &&
+                      INBUF_ALIGNMENT >= 16) {
                         /* When this->input is 16-byte aligned, we can just load,
                         align, and store 128 bits and be done.
                         */
 
-                        // 4 clock cycles:
-                        asm (
-                            "LD.QR q0, %[input], 0" "\n"
-                            "WUR.SAR_BYTE %[len]" "\n" // Pipelining: This instruction comes for free.
-                            "EE.SRC.Q q0, q0, q0" "\n"
-                            "ST.QR q0, %[input], 0" "\n"
-                            : "+m" (this->input)
-                            : [input] "r" (&this->input),
-                            [len] "r" (len)
-                        );            
+                        if constexpr (INBUF_SIZE == 16) {
+                            // 4 clock cycles:
+                            asm (
+                                "LD.QR q0, %[input], 0" "\n"
+                                "WUR.SAR_BYTE %[len]" "\n" // Pipelining: This instruction comes for free.
+                                "EE.SRC.Q q0, q0, q0" "\n"
+                                "ST.QR q0, %[input], 0" "\n"
+                                : "+m" (this->input)
+                                : [input] "r" (&this->input),
+                                  [len] "r" (len)
+                            );
+                        } else {
+                            // len can be >= 16, so reading and writing may be more than 15 bytes apart
+                            // need seperate read and write pointers for this case
+                            uint8_t* dst = this->input;
+                            const uint8_t* src = this->input + len;
+                            // Some multiple of 16 bytes to process
+                            asm (
+                                "EE.LD.128.USAR.IP q0, %[src], 16" "\n"
+                                "EE.VLD.128.IP q1, %[src], 16" "\n"
+
+                                "LOOP %[cnt], end_%=" "\n"
+                                    "EE.SRC.Q.QUP q2, q0, q1" "\n" // shift into q2, update q0
+                                    "EE.VLD.128.IP q1, %[src], 16" "\n" // load next data into q1
+                                    "EE.VST.128.IP q2, %[dst], 16" "\n" // store q2
+                                "end_%=:"
+                                : [src] "+r" (src),
+                                  [dst] "+r" (dst),
+                                  "+m" (this->input)
+                                : [cnt] "r" (((INBUF_SIZE+15)-len) / 16)
+                            );
+                        }
                     } else {        
                         // Just copying 16 bytes is faster than copying the (variable) exact length (< 16).
                         // 9 clock cycles:
@@ -468,7 +559,7 @@ namespace tamp {
             constexpr void writeBackref(const uint32_t match_index, const uint32_t match_size) noexcept {
                 // Write TOKEN
                 const uint32_t huffman_index = match_size - this->min_pattern_size;
-                write_to_bit_buffer(huffman_codes[huffman_index]);
+                write_to_bit_buffer(detail::huffman_codes[huffman_index]);
                 write_to_bit_buffer(match_index, this->conf_window);
             }
 
@@ -580,7 +671,8 @@ namespace tamp {
             }
 
             constexpr uint32_t getLiteralFlag() const noexcept {
-                return (uint32_t)1 << getLitLen();
+                // return (uint32_t)1 << getLitLen();
+                return LitLenTrait::getLiteralFlag(*this);
             }
 
             constexpr bool isValidLiteral(const uint32_t c) const noexcept {
@@ -590,26 +682,9 @@ namespace tamp {
             }
 
 
-            // encodes [min_pattern_bytes, min_pattern_bytes + 13] pattern lengths
-            // The bit lengths pre-add the 1 bit for the 0-value is_literal flag.
-            static constexpr detail::huffcode_t huffman_codes[] {
-                {0x0, 2},
-                {0x3, 3},
-                {0x8, 5},
-                {0xb, 5},
-                {0x14, 6},
-                {0x24, 7},
-                {0x26, 7},
-                {0x2b, 7},
-                {0x4b, 8},
-                {0x54, 8},
-                {0x94, 9},
-                {0x95, 9},
-                {0xaa, 9},
-                {0x27, 7}
-            };
 
-            static constexpr uint32_t MAX_PATTERN_RANGE = std::extent_v<typeof(huffman_codes)>;    
+
+            static constexpr uint32_t MAX_PATTERN_RANGE = std::extent_v<typeof(detail::huffman_codes)>;    
     };
 
     static_assert(sizeof(Compressor) == sizeof(TampCompressor));

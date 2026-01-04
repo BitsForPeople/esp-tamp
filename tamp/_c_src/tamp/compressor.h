@@ -9,11 +9,11 @@ extern "C" {
 
 #include "common.h"
 
-static const uint32_t TAMP_COMPRESSOR_BUF_ALIGNMENT =
+
 #if (TAMP_ESP32) && defined(CONFIG_IDF_TARGET_ESP32S3)
-    16;
+    #define TAMP_COMPRESSOR_BUF_ALIGNMENT   16
 #else
-    1;
+    #define TAMP_COMPRESSOR_BUF_ALIGNMENT   1
 #endif
 
 #ifndef TAMP_ESP32_FORCE_VAR_LIT
@@ -41,7 +41,7 @@ typedef struct TampCompressor{
     uint8_t conf_window;   // number of window bits
     uint8_t min_pattern_size;
     #if TAMP_ESP32_FORCE_VAR_LIT
-    uint8_t conf_literal
+    uint8_t conf_literal;
     #endif
 #else
     /* Conf attributes */
@@ -81,20 +81,11 @@ tamp_res tamp_compressor_init(TampCompressor *compressor, const TampConf *conf, 
  * @param[in] input_size Size of input.
  * @return Number of input bytes consumed
  */
-#if TAMP_ESP32
 size_t tamp_compressor_sink(
         TampCompressor *compressor,
         const unsigned char *input,
         size_t input_size
         );
-#else
-void tamp_compressor_sink(
-        TampCompressor *compressor,
-        const unsigned char *input,
-        size_t input_size,
-        size_t *consumed_size
-        );
-#endif
 
 /**
  * @brief Run a single compression iteration on the internal input buffer.

@@ -1,0 +1,1 @@
+# This file is only here to have the sdkconfig.defaults.<chip> pulled in by the build system.

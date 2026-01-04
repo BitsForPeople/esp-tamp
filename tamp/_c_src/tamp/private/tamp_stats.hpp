@@ -52,22 +52,7 @@ namespace tamp {
         uint32_t cumSearchLen {0}; // Number of data bytes actually searched
         uint32_t cumMatchPatLen {0}; // Number of bytes found in matches
 
-        // Needed as work-around for gcc bug
-        // "error: default member initializer for ... required before the end of its enclosing class"
         constexpr Stats() noexcept = default;
-        // :
-        //     searchCnt {0},
-        //     cumPotSearchLen {0},
-        //     cumPatLen {0},
-        //     potMatchCnt {0},
-        //     matchCnt {0},
-        //     cumSearchLen {0},
-        //     cumMatchPatLen {0}
-        //     {
-
-        //     }
-
-
 
         void log() const noexcept {
 #ifdef ESP_LOGI
