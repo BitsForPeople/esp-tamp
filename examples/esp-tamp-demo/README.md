@@ -1,4 +1,4 @@
-# ESP-TAMP Demo
+# ESP-Tamp Demo
 
 Demonstrates data compression and decompression using the Tamp library on ESP32 chips.
 
