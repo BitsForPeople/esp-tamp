@@ -192,25 +192,21 @@ tamp_res tamp_compressor_compress_poll(TampCompressor *compressor, unsigned char
 }
 
 
-void tamp_compressor_sink(
+size_t tamp_compressor_sink(
         TampCompressor *compressor,
         const unsigned char *input,
-        size_t input_size,
-        size_t *consumed_size
-        ){
-    size_t consumed_size_proxy;
-    if(TAMP_LIKELY(consumed_size))
-        *consumed_size = 0;
-    else
-        consumed_size = &consumed_size_proxy;
+        size_t input_size) {
+    size_t consumed_size = 0;
+
 
     for(size_t i=0; i < input_size; i++){
         if(TAMP_UNLIKELY(compressor->input_size == sizeof(compressor->input)))
             break;
         compressor->input[input_add(compressor->input_size)] = input[i];
         compressor->input_size += 1;
-        (*consumed_size)++;
+        consumed_size++;
     }
+    return consumed_size;
 }
 
 tamp_res tamp_compressor_compress(

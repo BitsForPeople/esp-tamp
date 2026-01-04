@@ -54,7 +54,7 @@ namespace tamp {
      */
     class Locator {
         public:
-            static constexpr bool STATS_ENABLED = true;
+            static constexpr bool STATS_ENABLED = false;
 
             // If enabled, provides statistics about search runs.
             inline static Stats<STATS_ENABLED> stats {};
@@ -501,7 +501,7 @@ namespace tamp {
                     // Given a 24-bit value in a 32-bit variable V and 4 bytes (32 bits) loaded from memory
                     // in a 32-bit variable D,
                     // if ((V << 8) == (D << 8)) then the lower 3 bytes (24 bits) of D are equal to V,
-                    // if (V == (D >> 8)) then the higher 3 bytes of D are equal to V.
+                    // if (V == (D >> 8)) then the upper 3 bytes of D are equal to V.
 
 
                     const uint32_t vl = as<uint32_t>(pattern) << 8; 
