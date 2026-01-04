@@ -25,6 +25,9 @@ When building the C library as a component in an ESP-IDF build, you can
 choose to build the original or the ESP32-optimized variant in
 menuconfig.
 
+A demo of how Tamp can be used on an ESP32-series chip can be found in [examples/esp-tamp-demo](examples/esp-tamp-demo).
+
+
 # Benchmarks
 
 Tamp can deliver decent compression with minimal memory and CPU
