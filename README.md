@@ -46,7 +46,7 @@ RAM requirement
 | %           | 100,0 %      | 56,9 %   | 49,9 %   | 47,2 %   | 46,0 %   | 45,8 %   |
 | Compression | 1,0 x        | 1,8 x    | 2,0 x    | 2,1 x    | 2,2 x    | 2,2 x    |
 
-Input: Espressif logo in 24-bit BMP format, 25862 bytes
+Input: [Espressif logo](examples/esp-tamp-demo/main/espressif-logo.bmp) in 24-bit BMP format, 25862 bytes
 
 Compressed output in bytes vs. window size ("window bits (bytes)")
 
