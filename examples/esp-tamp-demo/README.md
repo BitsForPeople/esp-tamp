@@ -6,7 +6,7 @@ Two files are embedded into the application and used as input data for compressi
 a 24-bit bitmap file ("[espressif-logo.bmp](main/espressif-logo.bmp)") and the first
 10^5 (=100000) bytes of the enwik8 (text) dataset ("[enwik5.txt](main/enwik5.txt)").
 
-The two embedded files are compressed, then decompressed again and the result verified to be identical
+The two embedded files are compressed, then decompressed again, and the result verified to be identical
 to the input.
 
 On an ESP32-S3 @ 240MHz the log output looks like this:
