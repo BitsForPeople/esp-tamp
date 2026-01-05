@@ -7,6 +7,9 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "esp_clk_tree.h"
+#include "esp_cpu.h"
+
 #include "tamp/compressor.h"
 #include "tamp/decompressor.h"
 
@@ -44,10 +47,10 @@ static tamp_res compress_block(TampCompressor* const comp, mem_span_t* const inp
 
 /**
  * @brief Flushes and outputs any remaining data from the compressor's buffers.
- * 
+ *
  * @param[in,out] comp \c TampCompressor instance
  * @param[in,out] output buffer where any output is to be put; will be adjusted to reflect the data produced upon return.
- * @return tamp_res 
+ * @return tamp_res
  */
 static tamp_res flush_compressor(TampCompressor* const comp, mem_span_t* const output) {
     size_t bytesOutput = 0;
@@ -62,14 +65,14 @@ static tamp_res flush_compressor(TampCompressor* const comp, mem_span_t* const o
  * @brief Compresses the input data by incrementally sending it to the compressor, demonstrating
  * incremental compression which can be used when input data may successively become available over time
  * instead of it all being available in a single buffer.
- * 
- * @param input 
- * @param input_len 
- * @param window_bits 
- * @param output 
- * @param max_output 
+ *
+ * @param input
+ * @param input_len
+ * @param window_bits
+ * @param output
+ * @param max_output
  * @param out_time_us (optional) if not \c NULL will receive the number of microseconds the compression took.
- * @return number of bytes placed in \p output 
+ * @return number of bytes placed in \p output
  */
 static size_t compress_incremental(const uint8_t* input, size_t input_len, unsigned window_bits, uint8_t* output, size_t max_output, uint32_t* const out_time_us) {
 
@@ -93,7 +96,7 @@ static size_t compress_incremental(const uint8_t* input, size_t input_len, unsig
     /* For demonstration, we'll send input to the compressor in small blocks,
      * although in this case we actually have all input available right from the start.
      */
-    const size_t blocksize = 10; 
+    const size_t blocksize = 10;
 
     const uint8_t* const input_end = input + input_len;
 
@@ -143,12 +146,12 @@ static size_t compress_incremental(const uint8_t* input, size_t input_len, unsig
 /**
  * @brief Uses the "one-stop" convenience function \c tamp_compressor_compress_and_flush() to compress the full
  * input in one go.
- * 
- * @param input 
- * @param input_len 
- * @param window_bits 
- * @param output 
- * @param max_output 
+ *
+ * @param input
+ * @param input_len
+ * @param window_bits
+ * @param output
+ * @param max_output
  * @param out_time_us (optional) if not \c NULL will receive the number of microseconds the compression took.
  * @return number of bytes placed in \p output
  */
@@ -209,6 +212,8 @@ static size_t test_decompress(const uint8_t* compressed, size_t compressed_len, 
         compressed_len -= consumed;
     }
 
+    // We need 1<<cfg.window bytes of memory for the decompressor (same as used for compression):
+
     uint8_t* const window_mem = (uint8_t*)malloc(1 << cfg.window);
     if(!window_mem) {
         ESP_LOGE(TAG, "Failed to allocate %d bytes for decompressor window.", (1<<cfg.window));
@@ -240,7 +245,7 @@ static void compare(const uint8_t* input, const size_t input_len, const uint8_t*
     unsigned i;
     for(i = 0; i < input_len; ++i) {
         if(decompressed[i] != input[i]) {
-            ESP_LOGE(TAG, "Difference @ %d: %" PRIu8 " != %" PRIu8, (int)i, input[i], espressif_logo_bmp_start[i]);
+            ESP_LOGE(TAG, "Difference @ %d: expected %" PRIu8 ", got %" PRIu8, (int)i, input[i], decompressed[i]);
             break;
         }
     }
@@ -249,10 +254,16 @@ static void compare(const uint8_t* input, const size_t input_len, const uint8_t*
     }
 }
 
+static inline uint32_t getCpuMhz(void) {
+    uint32_t hz;
+    esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &hz);
+    return hz / 1000000ul;
+}
+
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Tamp demo");
+    ESP_LOGI(TAG, "======= Tamp demo =======");
     ESP_LOGI(TAG, "[ESP32-optimized: "
         #if TAMP_ESP32
             "YES"
@@ -261,7 +272,15 @@ void app_main(void)
         #endif
         "]"
     );
+    ESP_LOGI(TAG, "CPU @ %" PRIu32 "MHz",getCpuMhz());
 
+
+    /*
+        Window size to use; valid values are 8...15
+        Only marginal (or even negative) gains are observed beyond 10 (1024 bytes),
+        8/9 are faster and require less memory (256/512 bytes) at the expense of
+        compression ratio.
+    */
     static const unsigned WINDOW_SIZE_LOG2 = 10;
 
     const uint8_t* const input = espressif_logo_bmp_start;
@@ -273,12 +292,16 @@ void app_main(void)
     uint8_t* const compressed = malloc(max_output);
     uint8_t* const decompressed = malloc(input_len+1);
 
+    ESP_LOGI(TAG, "Compressing %d bytes of input using a window of %d bytes.",
+        (int)input_len,
+        (int)(1<<WINDOW_SIZE_LOG2)
+    );
+
     uint32_t micros = 0;
 
-    ESP_LOGI(TAG, "Testing incremental compression.");
+    ESP_LOGI(TAG, "======= Testing incremental compression =======");
 
     // Perform compression:
-    ESP_LOGI(TAG, "Compressing %d bytes of input using a window of %d bytes.", (int)input_len, (int)(1<<WINDOW_SIZE_LOG2));
 
     size_t compressed_len = compress_incremental(
             input,
@@ -288,8 +311,13 @@ void app_main(void)
             max_output,
             &micros);
 
-    ESP_LOGI(TAG, "Compressed %d -> %d bytes (%.1f%%) in %.1fms.", 
-        input_len, compressed_len, (compressed_len * 100.f) / input_len, (micros*0.001f));
+    ESP_LOGI(TAG, "Compressed %d -> %d bytes (%.1f%%) in %.1fms (%.1fkb/s).",
+        input_len,
+        compressed_len,
+        (compressed_len * 100.f) / input_len,
+        (micros*0.001f),
+        (input_len/1024.f)/(micros*0.000001f)
+        );
 
 
 
@@ -304,18 +332,22 @@ void app_main(void)
     ESP_LOGI(TAG, "Decompressed to %d bytes (%.1fms).", (int)decompressed_len,(micros*0.001f));
 
 
-    // Compare decompressed data with original:
+    // Compare decompressed data to original:
     compare(input,input_len,decompressed,decompressed_len);
 
 
 
-    ESP_LOGI(TAG, "Testing one-step compression.");
+    ESP_LOGI(TAG, "======= Testing one-step compression =======");
 
     compressed_len = compress(input,input_len,WINDOW_SIZE_LOG2,compressed,max_output,&micros);
 
-    ESP_LOGI(TAG, "Compressed %d -> %d bytes (%.1f%%) in %.1fms.", 
-        input_len, compressed_len, (compressed_len * 100.f) / input_len, (micros*0.001f));
-
+    ESP_LOGI(TAG, "Compressed %d -> %d bytes (%.1f%%) in %.1fms (%.1fkb/s).",
+        input_len,
+        compressed_len,
+        (compressed_len * 100.f) / input_len,
+        (micros*0.001f),
+        (input_len/1024.f)/(micros*0.000001f)
+        );
 
 
     micros = esp_timer_get_time();
@@ -326,10 +358,11 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Decompressed to %d bytes (%.1fms).", (int)decompressed_len,(micros*0.001f));
 
-    // Compare decompressed data with original:
+    // Compare decompressed data to original:
     compare(input,input_len,decompressed,decompressed_len);
 
 
+    ESP_LOGI(TAG, "======= Done =======");
 
     free(decompressed);
     free(compressed);
