@@ -38,7 +38,6 @@ extern "C" {
 
 
 
-
 /* Compiler branch optimizations */
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 2))
 #define TAMP_LIKELY(c) (__builtin_expect(!!(c), 1))

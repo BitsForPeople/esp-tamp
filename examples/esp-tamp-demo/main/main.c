@@ -18,6 +18,9 @@ static const char* const TAG = "tamp-demo";
 extern const uint8_t espressif_logo_bmp_start[] asm("_binary_espressif_logo_bmp_start");
 extern const uint8_t espressif_logo_bmp_end[] asm("_binary_espressif_logo_bmp_end");
 
+extern const uint8_t enwik5_txt_start[] asm("_binary_enwik5_txt_start");
+extern const uint8_t enwik5_txt_end[] asm("_binary_enwik5_txt_end");
+
 static inline uint32_t min(const uint32_t a, const uint32_t b) {
     return (a<b) ? a : b;
 }
@@ -254,59 +257,45 @@ static void compare(const uint8_t* input, const size_t input_len, const uint8_t*
     }
 }
 
-static inline uint32_t getCpuMhz(void) {
-    uint32_t hz;
-    esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &hz);
-    return hz / 1000000ul;
-}
-
-
-void app_main(void)
-{
-    ESP_LOGI(TAG, "======= Tamp demo =======");
-    ESP_LOGI(TAG, "[ESP32-optimized: "
-        #if TAMP_ESP32
-            "YES"
-        #else
-            "NO"
-        #endif
-        "]"
-    );
-    ESP_LOGI(TAG, "CPU @ %" PRIu32 "MHz",getCpuMhz());
-
-
-    /*
-        Window size to use; valid values are 8...15
-        Only marginal (or even negative) gains are observed beyond 10 (1024 bytes),
-        8/9 are faster and require less memory (256/512 bytes) at the expense of
-        compression ratio.
-    */
-    static const unsigned WINDOW_SIZE_LOG2 = 10;
-
-    const uint8_t* const input = espressif_logo_bmp_start;
-    const size_t input_len = espressif_logo_bmp_end - espressif_logo_bmp_start;
-
+/**
+ * @brief Compresses the given input data, decompresses the compressed data again and compares the result.
+ * 
+ * @param input 
+ * @param input_len 
+ * @param window_bits 
+ */
+static inline void run_compression_test(const uint8_t* const input, const size_t input_len, const unsigned window_bits) {
     // We don't know the final size of the compressed data, so allocate for the 'worst case'.
     const size_t max_output = input_len;
 
     uint8_t* const compressed = malloc(max_output);
+    if(!compressed) {
+        ESP_LOGE(TAG, "Could not allocate %d bytes for compressed data.", (int)max_output);
+        return;
+    }
+
     uint8_t* const decompressed = malloc(input_len+1);
+    if(!decompressed) {
+        free(compressed);
+        ESP_LOGE(TAG, "Could not allocate %d bytes for decompressed data.", (int)(input_len+1));
+        return;
+    }
 
     ESP_LOGI(TAG, "Compressing %d bytes of input using a window of %d bytes.",
         (int)input_len,
-        (int)(1<<WINDOW_SIZE_LOG2)
+        (int)(1<<window_bits)
     );
 
     uint32_t micros = 0;
 
-    ESP_LOGI(TAG, "======= Testing incremental compression =======");
+    ESP_LOGI(TAG, "=== Incremental compression ===");
 
     // Perform compression:
 
     size_t compressed_len = compress_incremental(
             input,
             input_len,
-            WINDOW_SIZE_LOG2,
+            window_bits,
             compressed,
             max_output,
             &micros);
@@ -337,9 +326,9 @@ void app_main(void)
 
 
 
-    ESP_LOGI(TAG, "======= Testing one-step compression =======");
+    ESP_LOGI(TAG, "=== One-step compression ===");
 
-    compressed_len = compress(input,input_len,WINDOW_SIZE_LOG2,compressed,max_output,&micros);
+    compressed_len = compress(input,input_len,window_bits,compressed,max_output,&micros);
 
     ESP_LOGI(TAG, "Compressed %d -> %d bytes (%.1f%%) in %.1fms (%.1fkb/s).",
         input_len,
@@ -362,8 +351,50 @@ void app_main(void)
     compare(input,input_len,decompressed,decompressed_len);
 
 
-    ESP_LOGI(TAG, "======= Done =======");
+    ESP_LOGI(TAG, "=== Done ===");
 
     free(decompressed);
     free(compressed);
+
+}
+
+static inline uint32_t getCpuMhz(void) {
+    uint32_t hz;
+    esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &hz);
+    return hz / 1000000ul;
+}
+
+
+void app_main(void)
+{
+    ESP_LOGI(TAG, "=======\033[37m Tamp demo \033[32m=======");
+    ESP_LOGI(TAG, "[ESP32-optimized: "
+        #if TAMP_ESP32
+            "YES"
+        #else
+            "NO"
+        #endif
+        "]"
+    );
+    ESP_LOGI(TAG, "CPU @ %" PRIu32 "MHz",getCpuMhz());
+
+
+    /*
+        Window size to use; valid values are 8...15
+        Only marginal (or even negative) gains are observed beyond 10 (1024 bytes),
+        8/9 are faster and require less memory (256/512 bytes) at the expense of
+        compression ratio.
+    */
+    static const unsigned WINDOW_SIZE_LOG2 = 10;
+
+
+    ESP_LOGI(TAG, "=======\033[37m Bitmap \033[32m=======");
+
+    run_compression_test(espressif_logo_bmp_start, espressif_logo_bmp_end - espressif_logo_bmp_start, WINDOW_SIZE_LOG2);
+
+    ESP_LOGI(TAG, "=======\033[37m Text \033[32m=======");
+
+    run_compression_test(enwik5_txt_start, enwik5_txt_end - enwik5_txt_start, WINDOW_SIZE_LOG2);
+
+
 }

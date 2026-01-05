@@ -21,7 +21,7 @@ namespace tamp {
          * @brief Are we running on an Xtensa architecture?
          * 
          */
-        static constexpr bool XTENSA =
+        static constexpr bool XTENSA = 
             #ifdef __XTENSA__
                 true;
             #else
@@ -32,7 +32,7 @@ namespace tamp {
          * @brief Do we have the ESP32-S3's ISA extensions?
          * 
          */
-        static constexpr bool ESP32S3 =
+        static constexpr bool ESP32S3 = 
             #if CONFIG_IDF_TARGET_ESP32S3
                 true;
             #else
@@ -44,7 +44,7 @@ namespace tamp {
          * @brief Do we have Xtensa's zero-overhead loops?
          * 
          */
-        static constexpr bool XT_LOOP =
+        static constexpr bool XT_LOOP = 
             #if XCHAL_HAVE_LOOPS
                 true;
             #else

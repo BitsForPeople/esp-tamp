@@ -234,8 +234,7 @@ tamp_res tamp_compressor_compress(
     while(input_size > 0 && output_size > 0){
         {
             // Sink Data into input buffer.
-            size_t consumed;
-            tamp_compressor_sink(compressor, input, input_size, &consumed);
+            size_t consumed = tamp_compressor_sink(compressor, input, input_size);
             input += consumed;
             input_size -= consumed;
             (*input_consumed_size) += consumed;
