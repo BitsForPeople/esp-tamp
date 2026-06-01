@@ -11,32 +11,32 @@ to the input.
 
 On an ESP32-S3 @ 240MHz the log output looks like this:
 ```
-I (272) main_task: Calling app_main()
-I (272) tamp-demo: ======= Tamp demo =======
-I (272) tamp-demo: [ESP32-optimized: YES]
-I (272) tamp-demo: CPU @ 240MHz
-I (282) tamp-demo: ======= Bitmap =======
-I (282) tamp-demo: Compressing 25862 bytes of input using a window of 1024 bytes.
-I (292) tamp-demo: === Incremental compression ===
-I (312) tamp-demo: Compressed 25862 -> 6539 bytes (25.3%) in 14.5ms (1743.8kb/s).
-I (312) tamp-demo: Decompressed to 25862 bytes (5.4ms).
-I (322) tamp-demo: Decompressed data matches input data.
-I (322) tamp-demo: === One-step compression ===
-I (332) tamp-demo: Compressed 25862 -> 6539 bytes (25.3%) in 13.1ms (1932.4kb/s).
-I (342) tamp-demo: Decompressed to 25862 bytes (5.4ms).
-I (342) tamp-demo: Decompressed data matches input data.
-I (342) tamp-demo: === Done ===
-I (342) tamp-demo: ======= Text =======
-I (352) tamp-demo: Compressing 100000 bytes of input using a window of 1024 bytes.
-I (352) tamp-demo: === Incremental compression ===
-I (502) tamp-demo: Compressed 100000 -> 51407 bytes (51.4%) in 143.1ms (682.5kb/s).
-I (542) tamp-demo: Decompressed to 100000 bytes (36.4ms).
-I (552) tamp-demo: Decompressed data matches input data.
-I (552) tamp-demo: === One-step compression ===
-I (682) tamp-demo: Compressed 100000 -> 51407 bytes (51.4%) in 139.4ms (700.4kb/s).
-I (722) tamp-demo: Decompressed to 100000 bytes (36.4ms).
-I (732) tamp-demo: Decompressed data matches input data.
-I (732) tamp-demo: === Done ===
-I (732) main_task: Returned from app_main()
+I (267) main_task: Calling app_main()
+I (267) tamp-demo: ======= Tamp demo =======
+I (267) tamp-demo: [ESP32-optimized: YES]
+I (267) tamp-demo: CPU @ 240MHz
+I (277) tamp-demo: ======= Bitmap =======
+I (277) tamp-demo: Compressing 25862 bytes of input using a window of 1024 bytes.
+I (287) tamp-demo: === Incremental compression ===
+I (307) tamp-demo: Compressed 25862 -> 6538 bytes (25.3%) in 14.3ms (1768.4KB/s).
+I (307) tamp-demo: Decompressed to 25862 bytes (3.3ms).
+I (307) tamp-demo: Decompressed data matches input data.
+I (307) tamp-demo: === One-step compression ===
+I (327) tamp-demo: Compressed 25862 -> 6538 bytes (25.3%) in 13.1ms (1932.6KB/s).
+I (337) tamp-demo: Decompressed to 25862 bytes (3.2ms).
+I (337) tamp-demo: Decompressed data matches input data.
+I (337) tamp-demo: === Done ===
+I (337) tamp-demo: ======= Text =======
+I (347) tamp-demo: Compressing 100000 bytes of input using a window of 1024 bytes.
+I (347) tamp-demo: === Incremental compression ===
+I (497) tamp-demo: Compressed 100000 -> 51405 bytes (51.4%) in 142.9ms (683.6KB/s).
+I (527) tamp-demo: Decompressed to 100000 bytes (27.2ms).
+I (527) tamp-demo: Decompressed data matches input data.
+I (527) tamp-demo: === One-step compression ===
+I (667) tamp-demo: Compressed 100000 -> 51405 bytes (51.4%) in 139.2ms (701.7KB/s).
+I (697) tamp-demo: Decompressed to 100000 bytes (27.2ms).
+I (707) tamp-demo: Decompressed data matches input data.
+I (707) tamp-demo: === Done ===
+I (707) main_task: Returned from app_main()
 ```
 
