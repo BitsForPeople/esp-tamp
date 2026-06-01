@@ -16,12 +16,19 @@ namespace tamp {
      * (Mostly for Xtensa because the RISC-V's don't have many useful features for our use case.)
      * 
      */
-    struct Arch {
+    namespace arch {
+
+        enum class Arch_t {
+            OTHER,
+            ESP32S3,
+            ESP32P4
+        };
+
         /**
          * @brief Are we running on an Xtensa architecture?
          * 
          */
-        static constexpr bool XTENSA = 
+        static constexpr bool XTENSA =
             #ifdef __XTENSA__
                 true;
             #else
@@ -32,13 +39,28 @@ namespace tamp {
          * @brief Do we have the ESP32-S3's ISA extensions?
          * 
          */
-        static constexpr bool ESP32S3 = 
+        static constexpr bool ESP32S3 =
             #if CONFIG_IDF_TARGET_ESP32S3
                 true;
             #else
                 false;
             #endif
 
+        /**
+         * @brief Do we have the ESP32-P4's ISA extensions?
+         * 
+         */
+        static constexpr bool ESP32P4 =
+            #if CONFIG_IDF_TARGET_ESP32P4
+                true;
+            #else
+                false;
+            #endif
+
+
+        static constexpr Arch_t Arch = 
+            ESP32S3 ? Arch_t::ESP32S3 :
+                (ESP32P4 ? Arch_t::ESP32P4 : Arch_t::OTHER);
 
         /**
          * @brief Do we have Xtensa's zero-overhead loops?

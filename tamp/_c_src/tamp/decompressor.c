@@ -6,6 +6,9 @@
 
 #define FLUSH 15
 
+
+#define TAMP_ASSUME(x) if(!(x)) { __builtin_unreachable(); }
+
 /**
  * This array was generated with tools/huffman_jump_table.py
  *
@@ -99,6 +102,63 @@ tamp_res tamp_decompressor_init(TampDecompressor *decompressor, const TampConf *
     return res;
 }
 
+/**
+ * @brief Copies 16 bytes from \p src to \p dst
+ * 
+ * @param src 
+ * @param dst 
+ */
+static inline void cpy16(const uint8_t* src, uint8_t* dst) {
+    #if TAMP_ESP32
+        *(uint64_t*)dst = *(const uint64_t*)src;
+        *(uint64_t*)(dst+8) = *(const uint64_t*)(src+8);
+    #else 
+        for(unsigned i = 0; i < 16; ++i) {
+            dst[i] = src[i];
+        }
+    #endif
+}
+
+/**
+ * @brief Copies 0...16 bytes from \p src to \p dst
+ * 
+ * @param src 
+ * @param dst 
+ * @param cnt number of bytes to copy, max. 16
+ */
+static inline void cpy(const uint8_t* src, uint8_t* dst, size_t cnt) {
+    #if TAMP_ESP32
+        if(TAMP_LIKELY(cnt < 16)) {
+            if(cnt & 8) {
+                *(uint64_t*)dst = *(const uint64_t*)src;
+                dst += 8;
+                src += 8;
+            }
+            if(cnt & 4) {
+                *(uint32_t*)dst = *(const uint32_t*)src;
+                dst += 4;
+                src += 4;
+            }
+            if(cnt & 2) {
+                *(uint16_t*)dst = *(const uint16_t*)src;
+                dst += 2;
+                src += 2;
+            }
+            if(cnt & 1) {
+                *(uint8_t*)dst = *(const uint8_t*)src;
+                // dst += 1;
+                // src += 1;
+            }
+        } else {
+            cpy16(src,dst);
+        }
+    #else
+    for(unsigned i = 0; i < cnt; ++i) {
+        *dst++ = *src++;
+    }
+    #endif
+}
+
 tamp_res tamp_decompressor_decompress(
         TampDecompressor *decompressor,
         unsigned char *output,
@@ -179,8 +239,8 @@ tamp_res tamp_decompressor_decompress(
             uint16_t window_offset;
             uint16_t window_offset_skip;
             uint8_t bit_buffer_pos = decompressor->bit_buffer_pos;
-            int8_t match_size;
-            int8_t match_size_skip;
+            uint8_t match_size;
+            uint8_t match_size_skip;
 
             // shift out the is_literal flag
             bit_buffer <<= 1;
@@ -202,6 +262,7 @@ tamp_res tamp_decompressor_decompress(
                 return TAMP_INPUT_EXHAUSTED;
             }
             match_size += decompressor->min_pattern_size;
+
             window_offset = bit_buffer >> (32 - decompressor->conf_window);
 
             // Apply skip_bytes
@@ -222,21 +283,48 @@ tamp_res tamp_decompressor_decompress(
             }
 
             // Copy pattern to output
-            for(uint8_t i=0; i < match_size_skip; i++){
-                *output++ = decompressor->window[window_offset_skip + i];
+            {
+                const uint8_t* src = &(decompressor->window[window_offset_skip]);
+                cpy(src,output,match_size_skip);
+                output += match_size_skip;
             }
+
             (*output_written_size) += match_size_skip;
 
             if(TAMP_LIKELY(decompressor->skip_bytes == 0)){
                 // Perform window update;
-                // copy to a temporary buffer in case src precedes dst, and is overlapping.
                 uint8_t tmp_buf[16];
-                for(uint8_t i=0; i < match_size; i++){
-                    tmp_buf[i] = decompressor->window[window_offset + i];
+
+                const uint32_t w_pos = decompressor->window_pos;
+                const uint8_t* src = &(decompressor->window[window_offset]);
+                uint8_t* dst = &(decompressor->window[w_pos]);
+
+                if(TAMP_UNLIKELY(((src < dst) && ((src + match_size) >= dst)))) {
+                    // src and dst overlap.
+                    // Copy src data into tmp buffer
+                    #if TAMP_ESP32
+                        cpy16(src,tmp_buf);
+                    #else
+                        cpy(src,tmp_buf,match_size);
+                    #endif
+                    src = &(tmp_buf[0]);
                 }
-                for(uint8_t i=0; i < match_size; i++){
-                    decompressor->window[decompressor->window_pos] = tmp_buf[i];
-                    decompressor->window_pos = (decompressor->window_pos + 1) & window_mask;
+                {
+                    const uint32_t window_size = window_mask + 1;
+
+                    uint32_t l1 = window_size - w_pos;
+                    l1 = (l1 <= match_size) ? l1 : match_size;
+
+                    cpy(src,dst,l1);
+
+                    if(TAMP_UNLIKELY(l1 < match_size)) {
+                        // Need to wrap around.
+                        src += l1;
+                        const uint32_t l2 = match_size - l1;
+                        dst = &(decompressor->window[0]);
+                        cpy(src,dst,l2);
+                    }
+                    decompressor->window_pos = (w_pos + match_size) & window_mask;
                 }
             }
         }

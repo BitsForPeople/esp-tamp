@@ -55,7 +55,7 @@ tamp_res tamp_compressor_compress(
             input_size -= cons;
             consumed += cons;
         }
-        if(compressor->input_size == Compressor::INBUF_SIZE) [[likely]] {
+        if(compressor->input_size == detail::CompressorTrait::INBUF_SIZE) [[likely]] {
             // Input buffer is full and ready to start compressing.
             size_t chunk_output_written_size;
             res = tamp_compressor_compress_poll(compressor, output, output_size, &chunk_output_written_size);
