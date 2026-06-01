@@ -125,7 +125,76 @@ namespace tamp {
             {0x27, 7}
         };
 
+
+        
+        struct CompressorTrait {
+            static constexpr std::size_t INBUF_SIZE = sizeof(TampCompressor::input);
+            static constexpr std::size_t INBUF_ALIGNMENT = alignof(TampCompressor::input);
+        };
+
+        template<tamp::arch::Arch_t ARCH>
+        struct BufConsume {
+            static inline void consumeInput(TampCompressor& comp, const uint32_t len) noexcept {
+                // Just copying 16 bytes is faster than copying the (variable) exact length (< 16).
+                // 9 clock cycles:
+                mem::cpy_short<CompressorTrait::INBUF_SIZE>(comp.input, comp.input + len);
+            }
+        };
+
+        template<>
+        struct BufConsume<tamp::arch::Arch_t::ESP32S3> {
+            static inline void consumeInput(TampCompressor& comp, const uint32_t len) noexcept {
+                if constexpr ( CompressorTrait::INBUF_SIZE >= 16 &&
+                    CompressorTrait::INBUF_SIZE % 16 == 0 &&
+                    CompressorTrait::INBUF_ALIGNMENT >= 16 ) {
+                    /* When this->input is 16-byte aligned, we can just load,
+                    align, and store 128 bits and be done.
+                    */
+
+                    if constexpr (CompressorTrait::INBUF_SIZE == 16) {
+                        // 4 clock cycles:
+                        asm (
+                            "LD.QR q0, %[input], 0" "\n"
+                            "WUR.SAR_BYTE %[len]" "\n" // Pipelining: This instruction comes for free.
+                            "EE.SRC.Q q0, q0, q0" "\n"
+                            "ST.QR q0, %[input], 0" "\n"
+                            : "+m" (comp.input)
+                            : [input] "r" (&comp.input),
+                            [len] "r" (len)
+                        );
+                    } else {
+                        // len can be >= 16, so reading and writing may be more than 15 bytes apart
+                        // need seperate read and write pointers for this case
+                        uint8_t* dst = comp.input;
+                        const uint8_t* src = comp.input + len;
+                        // Some multiple of 16 bytes to process
+                        asm (
+                            "EE.LD.128.USAR.IP q0, %[src], 16" "\n"
+                            "EE.VLD.128.IP q1, %[src], 16" "\n"
+
+                            "LOOP %[cnt], end_%=" "\n"
+                                "EE.SRC.Q.QUP q2, q0, q1" "\n" // shift into q2, update q0
+                                "EE.VLD.128.IP q1, %[src], 16" "\n" // load next data into q1
+                                "EE.VST.128.IP q2, %[dst], 16" "\n" // store q2
+                            "end_%=:"
+                            : [src] "+r" (src),
+                            [dst] "+r" (dst),
+                            "+m" (comp.input)
+                            : [cnt] "r" (((CompressorTrait::INBUF_SIZE+15)-len) / 16)
+                        );
+                    }
+                } else {        
+                    // Just copying 16 bytes is faster than copying the (variable) exact length (< 16).
+                    // 9 clock cycles:
+                    mem::cpy_short<CompressorTrait::INBUF_SIZE>(comp.input, comp.input + len);
+                }
+
+            }
+        };
+
     } // namespace detail
+
+
 
 
     class DefaultEncoder {
@@ -175,11 +244,11 @@ namespace tamp {
     };
 
 
-    class Compressor : public TampCompressor {
-        using LitLenTrait = detail::LitConf<TampCompressor>;        
+    class Compressor : public TampCompressor, private detail::CompressorTrait {
+        using LitLenTrait = detail::LitConf<TampCompressor>;
         public:
 
-            static constexpr uint32_t INBUF_SIZE = sizeof(TampCompressor::input);
+            // static constexpr uint32_t INBUF_SIZE = CompressorTrait::INBUF_SIZE;
 
             /**
              * @brief Does this compressor support configurations with \c TampConf::literal != 8? 
@@ -212,7 +281,6 @@ namespace tamp {
 
                 // tamp::Locator::stats.reset();
 
-                // std::memset(compressor,0,sizeof(*compressor));
                 this->reset();
 
                 if(!this->setLitLen(conf->literal)) [[unlikely]] {
@@ -311,6 +379,7 @@ namespace tamp {
                 if(match.size() >= this->min_pattern_size) {
                     const uint32_t match_size = match.size();
                     const uint32_t match_index = match.data() - this->window;
+
                     this->writeBackref(match_index, match_size);
                     // Move matched data from input to window.
                     this->moveInputToWindow(match_size);
@@ -460,7 +529,7 @@ namespace tamp {
                         if(len < INBUF_SIZE) [[likely]] {
                             mem::cpy_short<INBUF_SIZE>(dst, src, len);                
                         } else {
-                            // assert(input_size == INBUF_SIZE);
+                            // assert(len == INBUF_SIZE);
                             // assert(this->input_size == 0);
                             mem::cpy_short<INBUF_SIZE>(dst, src);
                         }
@@ -486,51 +555,52 @@ namespace tamp {
                 this->input_size = sz;
 
                 if (sz != 0) [[likely]] {
-                    if constexpr (tamp::Arch::ESP32S3 &&
-                      INBUF_SIZE >= 16 &&
-                      INBUF_SIZE % 16 == 0 &&
-                      INBUF_ALIGNMENT >= 16) {
-                        /* When this->input is 16-byte aligned, we can just load,
-                        align, and store 128 bits and be done.
-                        */
+                    detail::BufConsume<tamp::arch::Arch>::consumeInput(*this,len);
+                    // if constexpr (tamp::arch::ESP32S3 &&
+                    //   INBUF_SIZE >= 16 &&
+                    //   INBUF_SIZE % 16 == 0 &&
+                    //   INBUF_ALIGNMENT >= 16) {
+                    //     /* When this->input is 16-byte aligned, we can just load,
+                    //     align, and store 128 bits and be done.
+                    //     */
 
-                        if constexpr (INBUF_SIZE == 16) {
-                            // 4 clock cycles:
-                            asm (
-                                "LD.QR q0, %[input], 0" "\n"
-                                "WUR.SAR_BYTE %[len]" "\n" // Pipelining: This instruction comes for free.
-                                "EE.SRC.Q q0, q0, q0" "\n"
-                                "ST.QR q0, %[input], 0" "\n"
-                                : "+m" (this->input)
-                                : [input] "r" (&this->input),
-                                  [len] "r" (len)
-                            );
-                        } else {
-                            // len can be >= 16, so reading and writing may be more than 15 bytes apart
-                            // need seperate read and write pointers for this case
-                            uint8_t* dst = this->input;
-                            const uint8_t* src = this->input + len;
-                            // Some multiple of 16 bytes to process
-                            asm (
-                                "EE.LD.128.USAR.IP q0, %[src], 16" "\n"
-                                "EE.VLD.128.IP q1, %[src], 16" "\n"
+                    //     if constexpr (INBUF_SIZE == 16) {
+                    //         // 4 clock cycles:
+                    //         asm (
+                    //             "LD.QR q0, %[input], 0" "\n"
+                    //             "WUR.SAR_BYTE %[len]" "\n" // Pipelining: This instruction comes for free.
+                    //             "EE.SRC.Q q0, q0, q0" "\n"
+                    //             "ST.QR q0, %[input], 0" "\n"
+                    //             : "+m" (this->input)
+                    //             : [input] "r" (&this->input),
+                    //               [len] "r" (len)
+                    //         );
+                    //     } else {
+                    //         // len can be >= 16, so reading and writing may be more than 15 bytes apart
+                    //         // need seperate read and write pointers for this case
+                    //         uint8_t* dst = this->input;
+                    //         const uint8_t* src = this->input + len;
+                    //         // Some multiple of 16 bytes to process
+                    //         asm (
+                    //             "EE.LD.128.USAR.IP q0, %[src], 16" "\n"
+                    //             "EE.VLD.128.IP q1, %[src], 16" "\n"
 
-                                "LOOP %[cnt], end_%=" "\n"
-                                    "EE.SRC.Q.QUP q2, q0, q1" "\n" // shift into q2, update q0
-                                    "EE.VLD.128.IP q1, %[src], 16" "\n" // load next data into q1
-                                    "EE.VST.128.IP q2, %[dst], 16" "\n" // store q2
-                                "end_%=:"
-                                : [src] "+r" (src),
-                                  [dst] "+r" (dst),
-                                  "+m" (this->input)
-                                : [cnt] "r" (((INBUF_SIZE+15)-len) / 16)
-                            );
-                        }
-                    } else {        
-                        // Just copying 16 bytes is faster than copying the (variable) exact length (< 16).
-                        // 9 clock cycles:
-                        mem::cpy_short<INBUF_SIZE>(this->input, this->input + len);
-                    }
+                    //             "LOOP %[cnt], end_%=" "\n"
+                    //                 "EE.SRC.Q.QUP q2, q0, q1" "\n" // shift into q2, update q0
+                    //                 "EE.VLD.128.IP q1, %[src], 16" "\n" // load next data into q1
+                    //                 "EE.VST.128.IP q2, %[dst], 16" "\n" // store q2
+                    //             "end_%=:"
+                    //             : [src] "+r" (src),
+                    //               [dst] "+r" (dst),
+                    //               "+m" (this->input)
+                    //             : [cnt] "r" (((INBUF_SIZE+15)-len) / 16)
+                    //         );
+                    //     }
+                    // } else {        
+                    //     // Just copying 16 bytes is faster than copying the (variable) exact length (< 16).
+                    //     // 9 clock cycles:
+                    //     mem::cpy_short<INBUF_SIZE>(this->input, this->input + len);
+                    // }
                 }
             }
 

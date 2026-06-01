@@ -31,7 +31,9 @@ typedef struct {
  * Don't invoke if setting conf to NULL in tamp_decompressor_init.
  *
  * @param[out] conf Configuration read from header
- * @param[in] data Tamp compressed data stream.
+ * @param[in] input Tamp compressed data stream.
+ * @param[in] input_size 
+ * @param[out] input_consumed_size (optional) number of bytes consumed from input by this function
  */
 tamp_res tamp_decompressor_read_header(TampConf *conf, const unsigned char *input, size_t input_size, size_t *input_consumed_size);
 
